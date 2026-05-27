@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { getDateKey } from "@/lib/date/dateUtils";
 
 export type DailyHabitCheck = {
   habitId: string;
@@ -27,12 +28,7 @@ type UpsertDailyHabitStatusParams = {
 };
 
 export function getTodayDateKey() {
-  const today = new Date();
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
+  return getDateKey(new Date());
 }
 
 export async function fetchDailyHabitChecks({

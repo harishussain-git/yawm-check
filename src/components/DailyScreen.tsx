@@ -14,9 +14,9 @@ import {
 import { UserAvatar } from "@/components/UserAvatar";
 import { fetchActiveAppUsers } from "@/lib/auth/appUsers";
 import type { AppUser } from "@/lib/auth/assignedLogin";
+import { addDays, formatDisplayDate, formatHijriDate, getDateKey } from "@/lib/date/dateUtils";
 import {
   fetchDailyHabitChecks,
-  getTodayDateKey,
   type HabitStatus,
   upsertDailyHabitStatus,
 } from "@/lib/habits/dailyChecks";
@@ -37,16 +37,19 @@ function getHabitIcon(iconKey: string | null) {
   return iconKey && iconKey in iconMap ? iconMap[iconKey as keyof typeof iconMap] : { icon: ClipboardCheck, color: "text-[#8be184]" };
 }
 
-function DateButton({ direction }: { direction: "previous" | "next" }) {
-  const Icon = direction === "previous" ? ChevronLeft : ChevronRight;
+type DateDirection = "prev" | "next";
+
+function DateButton({ direction, onClick }: { direction: DateDirection; onClick: () => void }) {
+  const Icon = direction === "prev" ? ChevronLeft : ChevronRight;
 
   return (
     <button
       type="button"
+      onClick={onClick}
       className="grid h-11 w-10 shrink-0 place-items-center rounded-[14px] border border-white/10 bg-[#101a25]/82 text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[390px]:h-12 min-[390px]:w-11"
     >
       <Icon className="h-5 w-5 min-[390px]:h-6 min-[390px]:w-6" strokeWidth={3} aria-hidden="true" />
-      <span className="sr-only">{direction === "previous" ? "Previous day" : "Next day"}</span>
+      <span className="sr-only">{direction === "prev" ? "Previous day" : "Next day"}</span>
     </button>
   );
 }
@@ -210,10 +213,14 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
   const [habitsError, setHabitsError] = useState<string | null>(null);
   const [rememberError, setRememberError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [isLoadingStatuses, setIsLoadingStatuses] = useState(false);
   const [myStatuses, setMyStatuses] = useState<Record<string, HabitStatus>>({});
   const [partnerStatuses, setPartnerStatuses] = useState<Record<string, HabitStatus>>({});
-  const [selectedDateKey] = useState(() => getTodayDateKey());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
 
+  const selectedDateKey = getDateKey(selectedDate);
+  const displayDate = formatDisplayDate(selectedDate);
+  const hijriDate = formatHijriDate(selectedDate);
   const partnerUserCode = partnerUser?.userCode ?? (currentUser.userCode === "hashim" ? "haris" : "hashim");
   const partnerName = partnerUser?.displayName ?? (currentUser.userCode === "hashim" ? "Haris" : "Hashim");
   const currentScore = `${habits.filter((habit) => myStatuses[habit.id] === "yes").length}/${habits.length || 0}`;
@@ -227,13 +234,11 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
         setIsLoadingHabits(true);
         setHabitsError(null);
         setRememberError(null);
-        setStatusError(null);
 
-        const [habitsResult, rememberResult, usersResult, myChecksResult] = await Promise.allSettled([
+        const [habitsResult, rememberResult, usersResult] = await Promise.allSettled([
           fetchActiveHabits(),
           fetchActiveRememberItems(),
           fetchActiveAppUsers(),
-          fetchDailyHabitChecks({ userId: currentUser.id, date: selectedDateKey }),
         ]);
 
         if (isMounted) {
@@ -252,28 +257,8 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
           if (usersResult.status === "fulfilled") {
             const loadedPartnerUser = usersResult.value.find((user) => user.id !== currentUser.id) ?? null;
             setPartnerUser(loadedPartnerUser);
-
-            if (loadedPartnerUser) {
-              try {
-                const partnerChecks = await fetchDailyHabitChecks({ userId: loadedPartnerUser.id, date: selectedDateKey });
-
-                if (isMounted) {
-                  setPartnerStatuses(toStatusMap(partnerChecks));
-                }
-              } catch (error) {
-                if (isMounted) {
-                  setStatusError(error instanceof Error ? error.message : "Could not load partner status. Please try again.");
-                }
-              }
-            }
           } else {
             setStatusError(usersResult.reason instanceof Error ? usersResult.reason.message : "Could not load users. Please try again.");
-          }
-
-          if (myChecksResult.status === "fulfilled") {
-            setMyStatuses(toStatusMap(myChecksResult.value));
-          } else {
-            setStatusError(myChecksResult.reason instanceof Error ? myChecksResult.reason.message : "Could not load today's checks. Please try again.");
           }
         }
       } catch (error) {
@@ -293,7 +278,47 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
     return () => {
       isMounted = false;
     };
-  }, [currentUser.id, selectedDateKey]);
+  }, [currentUser.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadStatusesForDate() {
+      setIsLoadingStatuses(true);
+      setStatusError(null);
+      setMyStatuses({});
+      setPartnerStatuses({});
+
+      try {
+        const currentUserChecks = await fetchDailyHabitChecks({ userId: currentUser.id, date: selectedDateKey });
+        let loadedPartnerStatuses: Record<string, HabitStatus> = {};
+
+        if (partnerUser) {
+          const partnerChecks = await fetchDailyHabitChecks({ userId: partnerUser.id, date: selectedDateKey });
+          loadedPartnerStatuses = toStatusMap(partnerChecks);
+        }
+
+        if (isMounted) {
+          setMyStatuses(toStatusMap(currentUserChecks));
+          setPartnerStatuses(loadedPartnerStatuses);
+        }
+      } catch {
+        if (isMounted) {
+          setStatusError("Could not load checks for this date.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingStatuses(false);
+        }
+      }
+    }
+
+    loadStatusesForDate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser.id, partnerUser, selectedDateKey]);
 
   async function setMyHabitStatus(habitId: string, status: Exclude<HabitStatus, null>) {
     if (myStatuses[habitId] === status) {
@@ -323,6 +348,11 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
     }
   }
 
+  function changeSelectedDate(direction: DateDirection) {
+    setStatusError(null);
+    setSelectedDate((currentDate) => addDays(currentDate, direction === "prev" ? -1 : 1));
+  }
+
   return (
     <div className="space-y-4">
       <header className="flex items-start justify-between gap-3">
@@ -342,12 +372,24 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
       </header>
 
       <section className="flex items-center gap-2 pt-1">
-        <DateButton direction="previous" />
-        <div className="flex min-h-11 flex-1 flex-col items-center justify-center rounded-[14px] border border-white/10 bg-[#101a25]/82 px-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[390px]:min-h-12">
-          <p className="text-sm font-semibold leading-tight text-zinc-100 min-[390px]:text-base">Saturday, 25 May 2026</p>
-          <p className="mt-0.5 text-xs font-medium text-zinc-500 min-[390px]:text-sm">8 Dhul-Hijjah 1447 AH</p>
-        </div>
-        <DateButton direction="next" />
+        <DateButton direction="prev" onClick={() => changeSelectedDate("prev")} />
+        <button
+          type="button"
+          onClick={() => {
+            setStatusError(null);
+            setSelectedDate(new Date());
+          }}
+          className="flex min-h-11 flex-1 flex-col items-center justify-center rounded-[14px] border border-white/10 bg-[#101a25]/82 px-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] min-[390px]:min-h-12"
+          aria-label="Jump to today"
+        >
+          <p className="text-sm font-semibold leading-tight text-zinc-100 min-[390px]:text-base">{displayDate}</p>
+          {hijriDate ? (
+            <p className="mt-0.5 text-xs font-medium text-zinc-500 min-[390px]:text-sm">{hijriDate}</p>
+          ) : (
+            <p className="mt-0.5 text-xs font-medium text-zinc-500 min-[390px]:text-sm">Daily checklist</p>
+          )}
+        </button>
+        <DateButton direction="next" onClick={() => changeSelectedDate("next")} />
       </section>
 
       <section className="grid grid-cols-2 gap-2.5">
@@ -371,6 +413,11 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
         {isLoadingHabits ? (
           <p className="rounded-[14px] border border-white/10 bg-[#101a25]/70 px-3 py-2 text-sm text-zinc-400">
             Loading habits...
+          </p>
+        ) : null}
+        {isLoadingStatuses ? (
+          <p className="rounded-[14px] border border-white/10 bg-[#101a25]/70 px-3 py-2 text-sm text-zinc-400">
+            Loading checks...
           </p>
         ) : null}
         {habitsError ? (

@@ -1,4 +1,8 @@
-export function getUserAvatarUrl(userCode?: string, avatarUrl?: string | null) {
+export function getUserAvatarUrl(
+  userCode?: string,
+  avatarUrl?: string | null,
+  tone?: "me" | "hashim" | "plain",
+) {
   if (avatarUrl) {
     return avatarUrl;
   }
@@ -9,6 +13,10 @@ export function getUserAvatarUrl(userCode?: string, avatarUrl?: string | null) {
 
   if (userCode === "hashim") {
     return "/avatars/hashim.webp";
+  }
+
+  if (tone === "me") {
+    return "/avatars/haris.webp";
   }
 
   return null;

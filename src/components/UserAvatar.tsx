@@ -34,7 +34,8 @@ const toneClass = {
 
 export function UserAvatar({ name, userCode, avatarUrl, tone = "plain", size = "md", className }: UserAvatarProps) {
   const [imageFailed, setImageFailed] = useState(false);
-  const imageUrl = imageFailed ? null : getUserAvatarUrl(userCode, avatarUrl);
+  const fallbackImageUrl = getUserAvatarUrl(userCode, null, tone);
+  const imageUrl = imageFailed ? fallbackImageUrl : getUserAvatarUrl(userCode, avatarUrl, tone);
   const showIcon = !imageUrl && tone === "plain";
 
   return (
@@ -52,7 +53,11 @@ export function UserAvatar({ name, userCode, avatarUrl, tone = "plain", size = "
           src={imageUrl}
           alt=""
           className="h-full w-full rounded-full object-cover"
-          onError={() => setImageFailed(true)}
+          onError={() => {
+            if (imageUrl !== fallbackImageUrl) {
+              setImageFailed(true);
+            }
+          }}
         />
       ) : null}
       {showIcon ? <User className={cn("text-zinc-300", iconSizeClass[size])} aria-hidden="true" /> : null}

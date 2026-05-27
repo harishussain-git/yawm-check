@@ -84,7 +84,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col px-6 pb-8 pt-[calc(34px+env(safe-area-inset-top))]">
         <section className="flex flex-col items-center text-center">
           <CalendarCheck className="h-16 w-16 text-[#67c653]" strokeWidth={2.2} aria-hidden="true" />
-          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white">Yawm Checklist</h1>
+          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white">Yawm Habit</h1>
           <p className="mt-4 text-2xl font-medium text-zinc-400">Welcome back</p>
         </section>
 

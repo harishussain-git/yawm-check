@@ -6,6 +6,31 @@ import { UserAvatar } from "@/components/UserAvatar";
 import type { AppUser } from "@/lib/auth/assignedLogin";
 import { fetchMonthlyReviewData, type ReviewDaySummary, type ReviewMonthSummary } from "@/lib/habits/review";
 
+const monthOptionFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "long",
+  year: "numeric",
+});
+
+function getMonthStart(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function getPreviousMonthOptions(count = 12) {
+  const currentMonth = getMonthStart(new Date());
+
+  return Array.from({ length: count }, (_, index) => {
+    const month = new Date(currentMonth);
+    month.setMonth(currentMonth.getMonth() - index);
+
+    return {
+      key: `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`,
+      label: monthOptionFormatter.format(month),
+      date: month,
+      isCurrent: index === 0,
+    };
+  });
+}
+
 function ProgressLine({
   name,
   value,
@@ -90,9 +115,12 @@ type ReviewScreenProps = {
 };
 
 export function ReviewScreen({ currentUser }: ReviewScreenProps) {
+  const [selectedMonth, setSelectedMonth] = useState<Date>(() => getMonthStart(new Date()));
+  const [isMonthMenuOpen, setIsMonthMenuOpen] = useState(false);
   const [reviewData, setReviewData] = useState<ReviewMonthSummary | null>(null);
   const [isLoadingReview, setIsLoadingReview] = useState(true);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const monthOptions = getPreviousMonthOptions();
 
   useEffect(() => {
     let isMounted = true;
@@ -101,7 +129,7 @@ export function ReviewScreen({ currentUser }: ReviewScreenProps) {
       try {
         setIsLoadingReview(true);
         setReviewError(null);
-        const data = await fetchMonthlyReviewData(currentUser);
+        const data = await fetchMonthlyReviewData(currentUser, selectedMonth);
 
         if (isMounted) {
           setReviewData(data);
@@ -122,10 +150,11 @@ export function ReviewScreen({ currentUser }: ReviewScreenProps) {
     return () => {
       isMounted = false;
     };
-  }, [currentUser]);
+  }, [currentUser, selectedMonth]);
 
   const partnerName = reviewData?.partnerUser.displayName ?? "Hashim";
   const partnerUser = reviewData?.partnerUser;
+  const resolvedCurrentUser = reviewData?.currentUser ?? currentUser;
   const currentTotalPossible = (reviewData?.currentDone ?? 0) + (reviewData?.currentMissed ?? 0);
   const partnerTotalPossible = (reviewData?.partnerDone ?? 0) + (reviewData?.partnerMissed ?? 0);
 
@@ -133,10 +162,13 @@ export function ReviewScreen({ currentUser }: ReviewScreenProps) {
     <div className="space-y-4 pt-1">
       <header className="flex items-start justify-between gap-3">
         <h1 className="pt-3 text-3xl font-semibold leading-none tracking-tight text-white min-[390px]:text-4xl">Review</h1>
-        <div className="text-right">
+        <div className="relative text-right">
           <button
             type="button"
+            onClick={() => setIsMonthMenuOpen((current) => !current)}
             className="flex min-h-10 items-center gap-2 rounded-xl border border-white/10 bg-[#111722]/82 px-3 text-base font-semibold text-zinc-100 min-[390px]:min-h-11"
+            aria-expanded={isMonthMenuOpen}
+            aria-label="Select review month"
           >
             {reviewData?.monthLabel ?? "This month"}
             <ChevronDown className="h-4 w-4 text-zinc-400" strokeWidth={2.5} aria-hidden="true" />
@@ -144,6 +176,34 @@ export function ReviewScreen({ currentUser }: ReviewScreenProps) {
           <p className="mt-1.5 pr-1 text-xs font-medium text-zinc-600 min-[390px]:text-sm">
             {reviewData?.hijriMonthLabel ?? "Dhul-Hijjah 1446"}
           </p>
+          {isMonthMenuOpen ? (
+            <div className="absolute right-0 top-12 z-30 max-h-72 w-44 overflow-y-auto rounded-2xl border border-white/10 bg-[#111722] p-1.5 text-left shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
+              {monthOptions.map((month) => {
+                const isSelected =
+                  month.date.getFullYear() === selectedMonth.getFullYear() &&
+                  month.date.getMonth() === selectedMonth.getMonth();
+
+                return (
+                  <button
+                    key={month.key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedMonth(month.date);
+                      setIsMonthMenuOpen(false);
+                    }}
+                    className={
+                      isSelected
+                        ? "flex w-full items-center gap-2 rounded-xl bg-[#58ad42] px-3 py-2 text-sm font-semibold text-white"
+                        : "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-white/5"
+                    }
+                  >
+                    <span className={month.isCurrent ? "h-1.5 w-1.5 shrink-0 rounded-full bg-[#8be184]" : "h-1.5 w-1.5 shrink-0"} />
+                    <span>{month.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -169,8 +229,8 @@ export function ReviewScreen({ currentUser }: ReviewScreenProps) {
             <div className="mb-3 flex items-center gap-2.5">
               <UserAvatar
                 name="Me"
-                userCode={currentUser.userCode}
-                avatarUrl={currentUser.avatarUrl}
+                userCode={resolvedCurrentUser.userCode}
+                avatarUrl={resolvedCurrentUser.avatarUrl}
                 tone="plain"
                 size="md"
                 className="bg-[#30384b]"
@@ -226,7 +286,7 @@ export function ReviewScreen({ currentUser }: ReviewScreenProps) {
           <ReviewDayCard
             key={day.date}
             day={day}
-            currentUser={currentUser}
+            currentUser={resolvedCurrentUser}
             partnerUser={reviewData?.partnerUser ?? {
               id: "",
               userCode: "hashim",

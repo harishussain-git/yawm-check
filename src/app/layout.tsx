@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Yawm Check",
-  description: "Daily Islamic accountability checklist",
+  title: "Yawm Habit",
+  description: "Daily habit accountability tracker",
 };
 
 export const viewport: Viewport = {
