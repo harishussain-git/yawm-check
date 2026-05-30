@@ -12,6 +12,7 @@ import {
   Sunrise,
 } from "lucide-react";
 import { CompletionCelebration } from "@/components/CompletionCelebration";
+import { isOneSignalReadyForPartnerNotify } from "@/components/EnableReminders";
 import { UserAvatar } from "@/components/UserAvatar";
 import { fetchActiveAppUsers } from "@/lib/auth/appUsers";
 import type { AppUser } from "@/lib/auth/assignedLogin";
@@ -219,6 +220,37 @@ function toStatusMap(checks: { habitId: string; status: HabitStatus }[]) {
   }, {});
 }
 
+function sendPartnerHabitNotification({
+  actorName,
+  partnerUserId,
+  habitTitle,
+  status,
+}: {
+  actorName: string;
+  partnerUserId: string;
+  habitTitle: string;
+  status: Exclude<HabitStatus, null>;
+}) {
+  if (!isOneSignalReadyForPartnerNotify()) {
+    return;
+  }
+
+  fetch("/api/notifications/habit-status", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      actorName,
+      partnerUserId,
+      habitTitle,
+      status,
+    }),
+  }).catch((error) => {
+    console.warn("Could not send partner habit notification.", error);
+  });
+}
+
 type DailyScreenProps = {
   currentUser: AppUser;
   onAvatarClick: () => void;
@@ -276,7 +308,8 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
           }
 
           if (usersResult.status === "fulfilled") {
-            const loadedPartnerUser = usersResult.value.find((user) => user.id !== currentUser.id) ?? null;
+            const expectedPartnerCode = currentUser.userCode === "hashim" ? "haris" : "hashim";
+            const loadedPartnerUser = usersResult.value.find((user) => user.userCode === expectedPartnerCode) ?? null;
             setPartnerUser(loadedPartnerUser);
           } else {
             setStatusError(usersResult.reason instanceof Error ? usersResult.reason.message : "Could not load users. Please try again.");
@@ -363,6 +396,16 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
         date: selectedDateKey,
         status,
       });
+
+      const habitTitle = habits.find((habit) => habit.id === habitId)?.title;
+      if (partnerUser?.id && habitTitle) {
+        sendPartnerHabitNotification({
+          actorName: currentUser.displayName,
+          partnerUserId: partnerUser.id,
+          habitTitle,
+          status,
+        });
+      }
 
       if (status === "yes" && habits.length > 0 && previousDone < habits.length && nextDone === habits.length) {
         setIsCelebrationOpen(true);

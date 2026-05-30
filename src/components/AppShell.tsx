@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BottomNav, type AppTab } from "@/components/BottomNav";
 import { DailyScreen } from "@/components/DailyScreen";
+import { EnableReminders, logoutOneSignal } from "@/components/EnableReminders";
 import { LoginScreen } from "@/components/LoginScreen";
 import { ReviewScreen } from "@/components/ReviewScreen";
 import type { AppUser } from "@/lib/auth/assignedLogin";
@@ -81,6 +82,7 @@ export function AppShell({ initialTab = "daily" }: AppShellProps) {
   }
 
   const handleLogout = () => {
+    logoutOneSignal();
     localStorage.removeItem(CURRENT_USER_STORAGE_KEY);
     setCurrentUser(null);
   };
@@ -99,6 +101,7 @@ export function AppShell({ initialTab = "daily" }: AppShellProps) {
         ) : (
           <ReviewScreen currentUser={currentUser} />
         )}
+        <EnableReminders currentUserId={currentUser.id} />
       </div>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
