@@ -1,26 +1,16 @@
 import { NextRequest } from "next/server";
+import { supabase } from "@/lib/supabase/client";
 
 type HabitStatusNotificationBody = {
+  actorUserId?: string;
   actorName?: string;
-  partnerUserId?: string;
   habitTitle?: string;
   status?: "yes" | "no";
+  date?: string;
 };
 
-const YES_MESSAGES = [
-  "{actorName} completed {habitTitle}. Your turn — keep going for Allah.",
-  "{actorName} marked {habitTitle} Yes. Small deeds, done regularly.",
-  "{actorName} completed {habitTitle}. MashaAllah — stay consistent.",
-  "{actorName} marked {habitTitle} Yes. Your brother is moving. Your turn.",
-];
-
 function buildNotificationBody(actorName: string, habitTitle: string, status: "yes" | "no") {
-  if (status === "no") {
-    return `${actorName} marked ${habitTitle} No. A gentle reminder for both of you.`;
-  }
-
-  const message = YES_MESSAGES[Math.floor(Math.random() * YES_MESSAGES.length)];
-  return message.replace("{actorName}", actorName).replace("{habitTitle}", habitTitle);
+  return `${actorName} marked ${habitTitle} as ${status === "yes" ? "Yes" : "No"}.`;
 }
 
 function parseResponseBody(responseText: string) {
@@ -40,6 +30,7 @@ export async function POST(request: NextRequest) {
       hasAppId: Boolean(process.env.ONESIGNAL_APP_ID),
       hasRestKey: Boolean(process.env.ONESIGNAL_REST_API_KEY),
     });
+
     return Response.json(
       {
         error: "Missing OneSignal env",
@@ -58,10 +49,73 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const { actorName, partnerUserId, habitTitle, status } = body;
+  const { actorUserId, actorName, habitTitle, status, date } = body;
 
-  if (!actorName || !partnerUserId || !habitTitle || (status !== "yes" && status !== "no")) {
+  if (!actorUserId || !actorName || !habitTitle || (status !== "yes" && status !== "no")) {
     return Response.json({ error: "Missing notification fields." }, { status: 400 });
+  }
+
+  const [usersResult, preferencesResult] = await Promise.all([
+    supabase
+      .from("app_users")
+      .select("id")
+      .eq("is_active", true),
+    supabase
+      .from("notification_preferences")
+      .select("user_id,push_enabled"),
+  ]);
+
+  const { data: users, error: usersError } = usersResult;
+  const { data: preferences, error: preferencesError } = preferencesResult;
+
+  if (usersError || preferencesError) {
+    console.warn("Could not load notification target users", {
+      actorUserId,
+      actorName,
+      habitTitle,
+      status,
+      date,
+      message: usersError?.message ?? preferencesError?.message,
+      code: usersError?.code ?? preferencesError?.code,
+    });
+
+    return Response.json(
+      {
+        error: "Could not load notification target users",
+        details: usersError?.message ?? preferencesError?.message,
+      },
+      { status: 500 },
+    );
+  }
+
+  const preferenceByUserId = new Map(
+    (preferences ?? []).map((preference) => [preference.user_id as string, Boolean(preference.push_enabled)]),
+  );
+  const targetUserIds = (users ?? [])
+    .map((user) => user.id)
+    .filter((userId): userId is string => {
+      if (typeof userId !== "string" || userId === actorUserId) {
+        return false;
+      }
+
+      return preferenceByUserId.get(userId) ?? true;
+    });
+
+  if (targetUserIds.length === 0) {
+    console.info("No notification target users", {
+      actorUserId,
+      actorName,
+      targetCount: 0,
+      habitTitle,
+      status,
+      date,
+    });
+
+    return Response.json({
+      ok: true,
+      targetCount: 0,
+      details: "No target users.",
+    });
   }
 
   const message = buildNotificationBody(actorName, habitTitle, status);
@@ -69,14 +123,16 @@ export async function POST(request: NextRequest) {
   console.info("Sending OneSignal habit notification", {
     hasAppId: Boolean(process.env.ONESIGNAL_APP_ID),
     hasRestKey: Boolean(process.env.ONESIGNAL_REST_API_KEY),
-    partnerUserId,
+    actorUserId,
     actorName,
+    targetCount: targetUserIds.length,
     habitTitle,
     status,
+    date,
   });
 
   try {
-    const response = await fetch("https://onesignal.com/api/v1/notifications", {
+    const response = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
         "Content-Type": "application/json; charset=utf-8",
@@ -85,7 +141,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         app_id: process.env.ONESIGNAL_APP_ID,
         include_aliases: {
-          external_id: [partnerUserId],
+          external_id: targetUserIds,
         },
         target_channel: "push",
         headings: {
@@ -103,7 +159,12 @@ export async function POST(request: NextRequest) {
     console.info("OneSignal habit notification response", {
       hasAppId: Boolean(process.env.ONESIGNAL_APP_ID),
       hasRestKey: Boolean(process.env.ONESIGNAL_REST_API_KEY),
-      partnerUserId,
+      actorUserId,
+      actorName,
+      targetCount: targetUserIds.length,
+      habitTitle,
+      status,
+      date,
       oneSignalStatus: response.status,
       oneSignalResponseBody: responseBody,
     });
@@ -113,6 +174,7 @@ export async function POST(request: NextRequest) {
         {
           error: "OneSignal request failed",
           status: response.status,
+          targetCount: targetUserIds.length,
           details: responseBody,
         },
         { status: response.status },
@@ -121,6 +183,7 @@ export async function POST(request: NextRequest) {
 
     return Response.json({
       ok: true,
+      targetCount: targetUserIds.length,
       status: response.status,
       details: responseBody,
     });
@@ -128,7 +191,12 @@ export async function POST(request: NextRequest) {
     console.warn("OneSignal habit notification fetch threw", {
       hasAppId: Boolean(process.env.ONESIGNAL_APP_ID),
       hasRestKey: Boolean(process.env.ONESIGNAL_REST_API_KEY),
-      partnerUserId,
+      actorUserId,
+      actorName,
+      targetCount: targetUserIds.length,
+      habitTitle,
+      status,
+      date,
       message: error instanceof Error ? error.message : "Unknown fetch error.",
     });
 

@@ -219,17 +219,15 @@ function toStatusMap(checks: { habitId: string; status: HabitStatus }[]) {
   }, {});
 }
 
-function sendPartnerHabitNotification({
+function sendHabitStatusNotification({
   actorUserId,
   actorName,
-  partnerUserId,
   habitTitle,
   status,
   date,
 }: {
   actorUserId: string;
   actorName: string;
-  partnerUserId: string;
   habitTitle: string;
   status: Exclude<HabitStatus, null>;
   date: string;
@@ -237,21 +235,12 @@ function sendPartnerHabitNotification({
   const safeLogData = {
     actorUserId,
     actorName,
-    partnerUserId,
     habitTitle,
     status,
     date,
   };
 
-  if (partnerUserId === actorUserId) {
-    console.warn("Partner notification failed", {
-      ...safeLogData,
-      reason: "Partner user id matched actor user id.",
-    });
-    return;
-  }
-
-  console.info("Sending partner notification", safeLogData);
+  console.info("Sending habit status notification", safeLogData);
 
   fetch("/api/notifications/habit-status", {
     method: "POST",
@@ -259,10 +248,11 @@ function sendPartnerHabitNotification({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
+      actorUserId,
       actorName,
-      partnerUserId,
       habitTitle,
       status,
+      date,
     }),
   })
     .then(async (response) => {
@@ -275,7 +265,7 @@ function sendPartnerHabitNotification({
           responseBody = response.statusText || responseBody;
         }
 
-        console.warn("Partner notification failed", {
+        console.warn("Habit status notification failed", {
           ...safeLogData,
           status: response.status,
           response: responseBody,
@@ -283,10 +273,14 @@ function sendPartnerHabitNotification({
         return;
       }
 
-      console.info("Partner notification sent", safeLogData);
+      const responseBody = (await response.json().catch(() => null)) as unknown;
+      console.info("Habit status notification sent", {
+        ...safeLogData,
+        response: responseBody,
+      });
     })
     .catch((error) => {
-      console.warn("Partner notification failed", {
+      console.warn("Habit status notification failed", {
         ...safeLogData,
         message: error instanceof Error ? error.message : "Network request failed.",
       });
@@ -434,7 +428,6 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
     console.info("Saving habit status", {
       actorUserId: currentUser.id,
       actorName: currentUser.displayName,
-      partnerUserId: partnerUser?.id ?? null,
       habitTitle: habitTitle ?? habitId,
       status,
       date: selectedDateKey,
@@ -451,30 +444,27 @@ export function DailyScreen({ currentUser, onAvatarClick }: DailyScreenProps) {
       console.info("Habit status saved", {
         actorUserId: currentUser.id,
         actorName: currentUser.displayName,
-        partnerUserId: partnerUser?.id ?? null,
         habitTitle: habitTitle ?? habitId,
         status,
         date: selectedDateKey,
       });
 
-      if (partnerUser?.id && habitTitle) {
-        void sendPartnerHabitNotification({
+      if (currentUser.id && habitTitle) {
+        void sendHabitStatusNotification({
           actorUserId: currentUser.id,
           actorName: currentUser.displayName,
-          partnerUserId: partnerUser.id,
           habitTitle,
           status,
           date: selectedDateKey,
         });
       } else {
-        console.warn("Partner notification failed", {
+        console.warn("Habit status notification failed", {
           actorUserId: currentUser.id,
           actorName: currentUser.displayName,
-          partnerUserId: partnerUser?.id ?? null,
           habitTitle: habitTitle ?? habitId,
           status,
           date: selectedDateKey,
-          reason: "Missing partner user id or habit title.",
+          reason: "Missing actor user id or habit title.",
         });
       }
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BottomNav, type AppTab } from "@/components/BottomNav";
 import { DailyScreen } from "@/components/DailyScreen";
-import { logoutOneSignal } from "@/components/EnableReminders";
+import { autoLinkOneSignalIfAllowed, logoutOneSignal } from "@/components/EnableReminders";
 import { LoginScreen } from "@/components/LoginScreen";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { ReviewScreen } from "@/components/ReviewScreen";
@@ -91,6 +91,14 @@ export function AppShell({ initialTab = "daily" }: AppShellProps) {
     setCurrentView("app");
     setCurrentUser(null);
   };
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    void autoLinkOneSignalIfAllowed(currentUser.id);
+  }, [currentUser]);
 
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} />;
